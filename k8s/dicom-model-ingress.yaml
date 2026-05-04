@@ -1,0 +1,21 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: dicom-model
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - dicom-model.localtest.me
+      secretName: dicom-model-tls
+  rules:
+    - host: dicom-model.localtest.me
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: dicom-model
+                port:
+                  number: 80

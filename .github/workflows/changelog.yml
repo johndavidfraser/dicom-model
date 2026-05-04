@@ -1,0 +1,144 @@
+# Auto-generate changelog entries using GitHub Copilot CLI.
+#
+# When a PR merges to dev, qa, or main, this workflow reads
+# the git diff and PR information, asks Copilot to write a
+# concise changelog entry, and commits it to CHANGELOG.md.
+#
+# This is an example of using AI in CI/CD — the same pattern
+# could generate release notes, documentation updates, or
+# compliance summaries.
+name: Auto Changelog
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+jobs:
+  update-changelog:
+    # Only run when a PR is actually merged, not just closed
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+
+    # Need write permission to commit the changelog update
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+        with:
+          # Fetch the full history so we can see the merge
+          # commit and the PR's changes
+          fetch-depth: 0
+          # Check out the branch the PR merged INTO (dev, qa,
+          # or main) so our commit goes to the right place
+          ref: ${{ github.event.pull_request.base.ref }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+
+      # Install the Copilot CLI globally on the runner
+      - name: Install Copilot CLI
+        run: npm install -g @github/copilot
+
+      # Use Copilot in programmatic mode to generate a
+      # changelog entry. The -p flag passes a prompt and
+      # exits when complete (no interactive session).
+      #
+      # We feed it the PR title, number, branch, and the
+      # list of changed files so it has context about what
+      # was merged.
+      - name: Generate changelog entry
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+        run: |
+          # Gather PR context for the prompt
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+          PR_BRANCH="${{ github.event.pull_request.head.ref }}"
+          TARGET_BRANCH="${{ github.event.pull_request.base.ref }}"
+          MERGE_DATE=$(date -u +"%Y-%m-%d")
+
+          # Get the list of files changed in this PR
+          CHANGED_FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }} 2>/dev/null || echo "Unable to determine changed files")
+
+          # Ask Copilot to generate a changelog entry
+          ENTRY=$(copilot -p "Generate a concise changelog entry for a software project.
+
+          PR #${PR_NUMBER}: ${PR_TITLE}
+          Branch: ${PR_BRANCH} merged into ${TARGET_BRANCH}
+          Date: ${MERGE_DATE}
+
+          Files changed:
+          ${CHANGED_FILES}
+
+          Rules:
+          - Output ONLY the changelog entry text, nothing else
+          - Start with the date in format ## [YYYY-MM-DD]
+          - Include the PR number as a reference
+          - Use bullet points for individual changes
+          - Be concise but specific about what changed
+          - Categorize changes as Added, Changed, Fixed, or Removed
+          - Do not include markdown code fences or explanation")
+
+          echo "Generated entry:"
+          echo "$ENTRY"
+
+          # Save the entry for the next step
+          echo "$ENTRY" > /tmp/changelog_entry.txt
+
+      # Prepend the new entry to CHANGELOG.md. If the file
+      # doesn't exist yet, create it with a header.
+      - name: Update CHANGELOG.md
+        run: |
+          if [ ! -f CHANGELOG.md ]; then
+            echo "# Changelog" > CHANGELOG.md
+            echo "" >> CHANGELOG.md
+            echo "All notable changes to dicom-model are documented in this file." >> CHANGELOG.md
+            echo "" >> CHANGELOG.md
+          fi
+
+          # Create a temp file with the new entry prepended
+          # after the header lines
+          HEADER=$(head -3 CHANGELOG.md)
+          EXISTING=$(tail -n +4 CHANGELOG.md)
+          NEW_ENTRY=$(cat /tmp/changelog_entry.txt)
+
+          echo "$HEADER" > CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "$NEW_ENTRY" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "$EXISTING" >> CHANGELOG.md
+
+          echo "Updated CHANGELOG.md:"
+          cat CHANGELOG.md
+
+      # Commit and push the updated changelog. The [skip ci]
+      # tag in the commit message prevents this commit from
+      # triggering another CI run — without it, you'd get
+      # an infinite loop of changelog updates triggering
+      # more changelog updates.
+      - name: Create changelog PR
+        env:
+          GH_TOKEN: ${{ secrets.CHANGELOG_PAT }}
+        run: |
+          BRANCH="auto/changelog-pr-${{ github.event.pull_request.number }}"
+          BASE="${{ github.event.pull_request.base.ref }}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git checkout -b "$BRANCH"
+          git add CHANGELOG.md
+          git diff --staged --quiet && echo "No changes to commit" && exit 0
+          git commit -m "docs: update changelog for PR #${{ github.event.pull_request.number }}"
+          git push origin "$BRANCH"
+
+          gh pr create \
+            --base "$BASE" \
+            --head "$BRANCH" \
+            --title "docs: changelog update for PR #${{ github.event.pull_request.number }}" \
+            --body "Auto-generated changelog entry from PR #${{ github.event.pull_request.number }}: ${{ github.event.pull_request.title }}"

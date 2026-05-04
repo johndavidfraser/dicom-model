@@ -1,0 +1,82 @@
+# See https://docs.github.com/get-started/getting-started-with-git/ignoring-files for more about ignoring files.
+
+# Compiled output
+/dist
+/tmp
+/out-tsc
+/bazel-out
+
+# Node
+/node_modules
+npm-debug.log
+yarn-error.log
+
+# IDEs and editors
+.idea/
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
+
+# Visual Studio Code
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+!.vscode/mcp.json
+.history/*
+
+# Miscellaneous
+/.angular/cache
+.sass-cache/
+/connect.lock
+/coverage
+/libpeerconnection.log
+testem.log
+/typings
+__screenshots__/
+.dcm 
+sample_data/
+
+# Python
+**/venv/
+**/.venv/
+**/__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# Generated CT mesh data
+# These are derived from CT scans via tools/ct-processor/process_ct.py
+# Run the processor locally to regenerate them
+public/heart_mesh*.json
+public/heart_mesh.json.gz
+
+# System files
+.DS_Store
+Thumbs.db
+
+# k8s
+k8s/certs/
+
+
+
+.nx/cache
+.nx/workspace-data
+
+# Playwright
+node_modules/
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/
+playwright-report/
+test-results/
+playwright-report/
+test-results/
