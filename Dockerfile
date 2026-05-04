@@ -8,7 +8,7 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 COPY . .
-RUN npx nx build-container dicom-model 
+RUN npx nx build dicom-model
 
 # ---- Stage 2: serve ----
 FROM nginx:1.27-alpine
