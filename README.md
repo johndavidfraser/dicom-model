@@ -2,7 +2,7 @@
 
 An Nx monorepo for processing and visualizing cardiac CT scans in the browser using WebGPU.
 
-**Note:** `public/heart_mesh.json` is gitignored due to its size. Before building the Angular app or the Docker image, you must run the CT processor at least once to generate it (see "Process a CT scan" below).
+**Note:** `public/heart_mesh.json` is gitignored due to its size. Before running or building the Angular app, place a `heart_mesh.json` in `public/` — either download it from the GitHub Release tagged `mesh-data`, or run the CT processor against your own DICOMs (see "Process a CT scan" below).
 
 ## What it does
 
@@ -35,12 +35,15 @@ dicom-model/
 
 ```bash
 npm install
+# Drop a heart_mesh.json into public/ (see note above)
 npm start
 ```
 
 Open `http://localhost:4200`. The app loads the pre-processed mesh from `public/heart_mesh.json`.
 
-### Process a CT scan
+### Process a CT scan (optional)
+
+The CT processor is an opt-in step — it's only needed if you want to regenerate the mesh from your own DICOM data. It's not part of the default `npm run build`.
 
 Place DICOM (`.dcm`) files in `tools/ct-processor/sample_data/`, then:
 
@@ -65,7 +68,7 @@ The script validates its output against the shared JSON Schema before writing.
 npm run build
 ```
 
-The Angular build depends on the CT processor via Nx — `nx build` will run the processor first if its outputs are stale.
+This builds the Angular app. It does not run the CT processor — see "Process a CT scan" above if you want to regenerate the mesh.
 
 ### Test and lint
 
@@ -84,15 +87,7 @@ Nx sees this repo as three projects:
 | `ct-processor` | application | `tools/ct-processor/` |
 | `shared-types` | library | `libs/shared-types/` |
 
-**Dependency chain:**
-
-```
-dicom-model:build
-  └── ct-processor:run        (must run first — produces public/heart_mesh.json)
-        └── shared-types      (implicit dep — ct-processor validates against its JSON Schema)
-```
-
-`ct-processor` is tagged `lang:python` and `scope:tools` and declares `shared-types` as an `implicitDependency` (because Python can't express the link in code the way TypeScript imports can).
+`ct-processor` is tagged `lang:python` and `scope:tools` and declares `shared-types` as an `implicitDependency` (because Python can't express the link in code the way TypeScript imports can). Run it on demand with `npx nx run ct-processor:run`.
 
 **Caching:** Nx caches the outputs of `build`, `test`, `lint`, and `ct-processor:run`. The processor only re-runs if its inputs change — `process_ct.py`, `requirements.txt`, the DICOM files in `sample_data/`, or the shared JSON Schema. Otherwise Nx restores `heart_mesh.json` from cache.
 

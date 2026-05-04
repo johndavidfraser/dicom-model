@@ -70,13 +70,10 @@ jobs:
 
       # Step 6: Build the app in production mode. This catches
       # TypeScript errors, template errors, and anything else the compiler flags.
-      # If the build fails, the job fails.
-      # Use the "build-container" target which skips the Python
-      # ct-processor dependency. CI only needs to verify the 
-      # TypeScript/Angular build succeeds - the mesh file is 
-      # handled separately at the Docker build stage
+      # If the build fails, the job fails. The mesh file is
+      # handled separately at the Docker build stage.
       - name: Build
-        run: npx nx build-container dicom-model
+        run: npx nx build dicom-model
 
   # --- Kubernetes manifest validation --------------
   # Validates that all k8s manifests are syntactically correct
