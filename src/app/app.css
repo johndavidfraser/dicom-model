@@ -1,0 +1,60 @@
+/*
+Styles scoped to the App component only.
+Angular automatically scopes component CSS — these styles
+won't leak out to other components.
+*/
+
+/* :host targets the component element itself (the <app-root> tag) */
+:host {
+  display: block;
+  height: 100dvh;
+  background-color: #1a1a2e;
+  color: #e0e0e0;
+  font-family: 'Inter', sans-serif;
+  /* Prevent pull-to-refresh on mobile when dragging the
+     canvas. overscroll-behavior stops the browser from
+     interpreting vertical drags as page refresh gestures. */
+  overscroll-behavior: none;
+}
+
+header {
+  padding: 1rem 2rem;
+  background-color: #16213e;
+  border-bottom: 1px solid #0f3460;
+}
+
+h1 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 500;
+}
+
+/* The container for the 3D canvas */
+.viewport {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: calc(100dvh - 60px);
+  /* Prevent any overflow that could cause scrollbars
+     on mobile when the canvas fills the viewport */
+  overflow: hidden;
+}
+
+/* The canvas fills its container and stays sharp on
+   high-DPI screens (Retina, mobile). The actual rendering
+   resolution is set in app.ts using devicePixelRatio. */
+canvas {
+  width: 100%;
+  height: 100%;
+  border-radius: 8px;
+  border: 1px solid #0f3460;
+  /* Prevent the canvas from being selectable or triggering
+     text selection UI on long-press (mobile) */
+  user-select: none;
+  -webkit-user-select: none;
+  /* Disable the default touch action so the browser doesn't
+     try to scroll or zoom when the user drags on the canvas.
+     This works together with preventDefault() in the touch
+     event listeners. */
+  touch-action: none;
+}

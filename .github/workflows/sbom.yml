@@ -1,0 +1,81 @@
+name: SBOM File Generate
+
+on:
+    workflow_call:
+        inputs:
+            version:
+                description: Version of the SBOM to generate
+                required: false
+                type: string
+            ignore-branch-check:
+                description: Ignore branch check to allow running on non-default branches if user follows Gitflow approach
+                required: false
+                type: boolean
+                default: false
+
+permissions:
+    contents: write
+
+jobs:
+    generate-sbom-job:
+        name: Generate SBOM
+        if: ${{ github.event_name == 'release' || github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || inputs.ignore-branch-check}}
+        runs-on: ubuntu-latest
+        env:
+            VERSION: ${{ github.event.release.tag_name || inputs.version }}
+        steps:
+            - name: Fail workflow if version is not provided and github event is not release
+              if: ${{ !inputs.version && github.event_name != 'release'}}
+              run: |
+                echo: "GitHub event is ${{ github.event_name }}"
+                echo: ":: error::Version is required if GitHub event is not release"
+                echo: "Version is required if GitHub event is not release" >> $GITHUB_STEP_SUMMARY
+                exit 1
+
+            - name: Fetch the current state of the repository and branch
+              uses: actions/checkout@v5
+
+            - name: Set output file name
+              run: |
+                echo "SBOM_FILE_NAME =${{ github.event.repository.name }}-${VERSION}-sbom.spdx.json" >> $GITHUB_ENV
+                
+            - name: generate-sbom
+              id: generate-sbom
+              env:
+                GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                gh api repos/${{ github.repository }}/dependency-graph/sbom \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                --jq '.sbom' | jq '.' > ${SBOM_FILE_NAME}
+
+            - name: Upload SBOM to GitHub Release
+              id: upload-sbom
+              env:
+                GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                CREATE_RELEASE_URL: ${{ format('{0}/{1}/releases/new?tag={2}', github.server_url, github.repository, env.VERSION) }}
+              run: |
+                gh release upload "${VERSION}" "${SBOM_FILE_NAME}" --clobber || {
+                    echo "Failed to upload SBOM to release '${VERSION}'. This usually means the release does not exist." >> $GITHUB_STEP_SUMMARY
+                    echo "::error::Failed to upload SBOM to release '${VERSION}'. This usually means the release does not exist."
+                    echo "You can create a release at: ${CREATE_RELEASE_URL}" >> $GITHUB_STEP_SUMMARY
+                    exit 1
+                }
+                echo "SBOM successfully uploaded to release ${VERSION}" >> $GITHUB_STEP_SUMMARY
+
+            - name: Upload SBOM to workflow summary
+              uses: actions/upload-artifact@v4
+              with:
+                name: sbom
+                path: ${{ env.SBOM_FILE_NAME }}
+                retention-days: 1
+
+            - name: Log results to workflow summary
+              env:
+                URL: ${{ github.event.release.html_url || format('{0}/{1}/releases/tag/{2}', github.server_url, github.repository, env.VERSION) }}
+              run: |
+                echo "SBOM file generated and uploaded to release: ${URL}"
+                echo "SBOM file generated and uploaded to release: ${URL}" >> $GITHUB_STEP_SUMMARY
+
+
+
+    

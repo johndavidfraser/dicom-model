@@ -1,0 +1,321 @@
+name: CI
+
+# "on" declares the events that trigger this workflow
+# We want it to run when code is pushed to main, AND when
+# someone opens a pull request targeting main. The PR trigger
+# is the important one once you strat working on branches
+on:
+  push:
+    branches: [main, dev, qa]
+    # Also tirgger on version tags. The "v*" pattern matches
+    # any tag starting with "v"
+    tags: ['v*']
+  pull_request:
+    branches: [main, dev, qa]
+
+# A workflow contains one or more jobs. We only need one job here:
+# build the app and lint it. If you later add tests, you
+# could put them in the same job (fast, shares setup) or a
+# separate job (runs in parallel, clearer failure reporting).
+# One job is fine for now
+
+jobs:
+  build:
+    # The runner OS. ubuntu-latest is the cheapest and fastest
+    # choice and works fine for Node/Angular builds. Only use
+    # macos or windows if you specifically need those platforms
+    runs-on: ubuntu-latest
+
+    # Steps run sequentially on the same runner machine.
+    steps:
+      # Step 1: Check out your repository code onto the runner.
+      # Without this, the runner has an empty filesystem - it 
+      # doesn't automatically know about your code. "actions/checkout"
+      # is an official action maintained by GitHub
+      # The @4 pins the version.
+      - name: Check out repository
+        uses: actions/checkout@v5
+      
+      # Step 2: Install Node.js on the runner. The setup-node
+      # action also configures npm's cache, which dramatically
+      # speeds up subsequent runs by reusing downloaded packages.
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24' # Match the major version you use locally
+          cache: 'npm' # cache ~/.npm between runs
+      
+      # Step 3: Install dependencies. "npm ci" (clean install)
+      # is the CI-friendly version of "npm" install: it
+      # installs exactly what's in the package-lock.json, 
+      # fails if the lockfile is out of sync, and is 
+      # faster. Always use "npm" ci in workflows, never 
+      # "npm install"
+      - name: Install dependencies
+        run: npm ci
+      
+      # Step 4: Link the code. If ng link finds errors, this step fails,
+      # which fails the whole job, which marks the comit/PR as failed
+      - name: Lint
+        run: npm run lint
+
+      # Step 5: Run unit tests. These verify that individual
+      # functions and components behave correctly in isolation. 
+      # Tests run in a jsdom environment (a fake browser inside
+      # Node.js) so they are fast, no real browser needed. 
+      # The --watch=false flag prevents Vitest from entering 
+      # interactive watch mode, which would hang the CI runner. 
+      - name: Test
+        run: npx nx test dicom-model --watch=false
+
+      # Step 6: Build the app in production mode. This catches
+      # TypeScript errors, template errors, and anything else the compiler flags.
+      # If the build fails, the job fails.
+      # Use the "build-container" target which skips the Python
+      # ct-processor dependency. CI only needs to verify the 
+      # TypeScript/Angular build succeeds - the mesh file is 
+      # handled separately at the Docker build stage
+      - name: Build
+        run: npx nx build-container dicom-model
+
+  # --- Kubernetes manifest validation --------------
+  # Validates that all k8s manifests are syntactically correct
+  # and conform to the Kubernestes API schema. This catches
+  # typos, invalid fields, and wrong API versions before
+  # anyone tries to apply them to a real cluster.
+  #
+  # "dry-run=client" menas kubectl checks the YAML structure
+  # locally without connecting to any cluster. It doesn't need
+  # credentials or a running cluster, it just validates
+  # against the built-in Kubernetes API schema
+  validate-manifests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      # kubeconform validates Kubernetes manifests offline
+      # using built-in schemas. Unlike kubectl, it doesn't
+      # need a cluster connection — it's purpose-built for
+      # CI validation. It checks YAML structure, field names,
+      # types, required fields, and API version correctness.
+      - name: Install kubeconform
+        run: |
+          curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz \
+            | tar xz -C /usr/local/bin
+
+      - name: Validate Kubernetes manifests
+        run: |
+          echo "Validating Kubernetes manifests..."
+          kubeconform \
+            -summary \
+            -strict \
+            -verbose \
+            k8s/dicom-model-deployment.yaml \
+            k8s/dicom-model-service.yaml \
+            k8s/dicom-model-ingress.yaml
+
+
+  # -- Terraform validation --------------------------------
+  # Validates Terraform configuration files for syntax and
+  # consistency. This catches typos, missing variables, and invalid
+  # references before anyone runs terraform apply
+  # Unlike terraform plan (which needs AWS credentials),
+  # validate and fmt work completely offline
+  validate-terraform:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      # terraform init downloads provider plugins and modules.
+      # "-backend=false" skips state backend config since we're
+      # only validating, not planning or applying.
+      - name: Terraform init
+        working-directory: infra/terraform
+        run: terraform init -backend=false
+
+      # terraform validate checks that the configuration is
+      # syntactically correct and internally consistent —
+      # all variable references resolve, all module outputs
+      # exist, all resource arguments are valid.
+      - name: Terraform validate
+        working-directory: infra/terraform
+        run: terraform validate
+
+      # terraform fmt -check verifies consistent formatting.
+      # Like a linter for Terraform code. If any file isn't
+      # formatted correctly, this step fails. Fix it locally
+      # with "terraform fmt".
+      - name: Terraform format check
+        working-directory: infra/terraform
+        run: terraform fmt -check
+
+  # -- Docker image build -------------------
+  # This job builds the Docker image to verify the Dockerfile works
+  # It only runs AFTER the build job success, because there's no point
+  # containerizing broken code.
+  docker:
+    runs-on: ubuntu-latest
+
+    # "needs" creates a dependency between jobs. This job won't start until
+    # the "build" job completes successfully. If "build" fails, this job is
+    # skipped entirely. You can list multiple dependencies: needs: [build, test]
+    needs: build
+
+    # Permission block. By default, GITHUB_TOKEN has read-only
+    # access to most things. To push container images, we need write access 
+    # to the "packages" scope. This is the principle of least privilege
+    # only grant what the job actually needs
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+        
+      # Docker's official "setup-buildx" action installs BuildKit,
+      # which is a modern Docker build engine. BuildKit gives us
+      # layer caching, multi-platform builds, and better performance.
+      # Even for single-platform builds, it's the recommended way to
+      # build images in CI.
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Restore the heart_mesh.json file from GitHub's cache
+      # The cache key is "heart-mesh-v1", a simple manual key
+      # Bump the version (v2, v3...) if you regenerate the mesh
+      # from new CT data, so CI picks up the new file
+
+      # "actions/cache" does two thing:
+      # 1. At this step: tries to RESTORE from a matching key
+      # 2. At the end of the job: if they key wasn't found, SAVES the path so future runs can restore it
+
+      # "retore-keys" is a fallback, if the exact key doesn't
+      # match, try any key starting with "heart-mesh". This
+      # let's you bump the versions without a total cache miss
+
+      - name: Restore heart mesh from cache
+        id: mesh-cache
+        uses: actions/cache@v4
+        with:
+          path: public/heart_mesh.json
+          key: heart-mesh-v2
+          restore-keys: |
+            heart-mesh-
+      
+      # If the cache missed (first run, or cache expired), the
+      # Docker build will fail. That's expected, we need to 
+      # seed the cache first using the upload workflow
+      - name: Verify mesh file exists
+        if: steps.mesh-cache.outputs.cache-hit != 'true'
+        run: |
+              echo "::error::heart_mesh.json not found in cache. Run the 'Seed mesh cache" workflow first."
+              exit 1
+
+      # Log into GitHub Container Registry. This uses
+      # the docker/login-action which handles the "docker login"
+      # command for us. The GITHUB_TOKEN is automatically available
+      # ghcr.io is GitHub's container registry domain
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
+      # Generate image tags. This action reads the git
+      # context (branch, SHA, tags) and produces Docker
+      # tags following best practices. Every image gets a SHA tag
+      # (sha-abc1234), which is an immuatable pointer to exactly what
+      # was built
+      # Branch builds alson get branch name as a tag, this is a moving
+      # pointer that always means "latest build from this branch"
+      #
+      # "metadata-action" outputs the tags and labels, which 
+      # we feed into the build step
+      - name: Generate image tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          # Tagging strategy per branch:
+          # dev push "dev" + "sha"
+          # qa push "qa" + "sha"
+          # main push "latest" + "sha"
+          #
+          # The SHA tag is immutable, it always points
+          # to one specific build. The branch/latest 
+          # tags are moving pointers that update on 
+          # every push. "latest" on main follows
+          # Docker convention, it means "the most
+          # recent production ready image"
+          tags: |
+            type=sha,prefix=sha-
+            type=ref,event=branch
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=semver,pattern={{version}}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          # Only push on actual branch pushes (merges to dev,
+          # qa, main), NOT on pull requests. PRs should verify
+          # the build works but not publish an image, we don't want 
+          # untests PR code in our registry
+          push: ${{ github.event_name == 'push' }}
+          load: ${{ github.event_name != 'push' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+
+  # ── End-to-end tests ─────────────────────────────────────
+  # Runs Playwright E2E tests against the actual app in a
+  # real browser. GPU-dependent tests are skipped in CI
+  # (headless Linux has no WebGPU), but we still verify the
+  # app boots, serves, and renders its basic HTML structure.
+  e2e:
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Playwright needs browser binaries downloaded onto the
+      # runner. This installs only Chromium (matching our
+      # playwright.config.ts) plus its OS-level dependencies
+      # (libs for rendering, fonts, etc.).
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run E2E tests
+        run: npx playwright test --project=chromium
+
+      # Upload the Playwright HTML report as an artifact so
+      # you can download and inspect it if tests fail.
+      # "if: always()" means this step runs even when tests
+      # fail — that's when you need the report most.
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 14

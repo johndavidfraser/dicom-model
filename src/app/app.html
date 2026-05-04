@@ -1,0 +1,22 @@
+<!--
+This is the root template for our cardiac visualization app.
+-->
+
+<!-- App header with the project title -->
+<header>
+  <h1>{{ title() }}</h1>
+</header>
+
+<!-- This section holds our 3D rendering canvas -->
+<section class="viewport">
+  <!-- The canvas element is where WebGPU renders the 3D scene.
+       #gpuCanvas is a template reference used in app.ts to
+       get a handle on this DOM element.
+
+       CV-2: Removed hardcoded width/height attributes.
+       The canvas now fills its container via CSS, and we
+       set the rendering resolution programmatically in
+       app.ts to match the actual display size. This ensures
+       sharp rendering on all screen sizes and pixel densities. -->
+  <canvas #gpuCanvas></canvas>
+</section>

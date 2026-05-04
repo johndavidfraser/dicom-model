@@ -1,0 +1,35 @@
+# Service with AWS Load Balancer configured for HTTPS.
+#
+# The "annotations" section is the AWS-specific part.
+# These annotations tell the AWS Load Balancer Controller
+# how to configure the ELB. This is one of the places
+# where cloud-agnostic ends and provider-specific begins —
+# Azure and GCP use different annotations for the same
+# concept.
+apiVersion: v1
+kind: Service
+metadata:
+  name: dicom-model
+  annotations:
+    # Use an AWS Network Load Balancer (NLB) instead of
+    # the default Classic Load Balancer. NLB is newer,
+    # faster, and supports TLS termination.
+    service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+    # Enable TLS on the load balancer. It will decrypt
+    # HTTPS traffic and forward plain HTTP to your pods.
+    # Replace with your ACM certificate ARN, e.g.:
+    # arn:aws:acm:<region>:<account-id>:certificate/<cert-id>
+    service.beta.kubernetes.io/aws-load-balancer-ssl-cert: "REPLACE_WITH_ACM_CERT_ARN"
+    # Listen on port 443 (HTTPS) externally
+    service.beta.kubernetes.io/aws-load-balancer-ssl-ports: "443"
+spec:
+  type: LoadBalancer
+  selector:
+    app: dicom-model
+  ports:
+    # The load balancer listens on 443 (HTTPS) and
+    # forwards to port 80 (HTTP) on the pods. Your
+    # nginx container doesn't need to know about TLS.
+    - port: 443
+      targetPort: 80
+      protocol: TCP

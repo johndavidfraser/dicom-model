@@ -1,0 +1,58 @@
+# This workflow uploads heart_mesh.json to GitHub's Actions cache.
+# It runs MANUALLY — you trigger it from the Actions tab in GitHub.
+#
+# Why a separate workflow? The mesh file is ~338 MB and gitignored
+# (correctly — it doesn't belong in version control). CI needs it
+# to build the Docker image, so we cache it on GitHub's servers.
+# You only need to run this when:
+#   1. The cache has expired (7 days without access)
+#   2. You've regenerated the mesh from new CT data
+#
+# "workflow_dispatch" is the trigger type for manual workflows.
+# GitHub shows a "Run workflow" button on the Actions tab for these.
+name: Seed mesh cache
+
+on:
+  workflow_dispatch:
+    # "inputs" creates form fields in the GitHub UI when you
+    # trigger the workflow manually. This lets you bump the
+    # cache version without editing the YAML file.
+    inputs:
+      cache-version:
+        description: 'Cache key version (must match ci.yml, e.g. v1)'
+        required: true
+        default: 'v1'
+
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      # Download the mesh file which was released as a GitHub Release artifact
+      - name: Download mesh file
+        run: |
+          echo "Downloading heart_mesh.json..."
+          gh release download mesh-data \
+            --pattern 'heart_mesh.json' \
+            --dir public/
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Verify the file arrived and looks reasonable
+      - name: Verify mesh file
+        run: |
+          echo "File size:"
+          ls -lh public/heart_mesh.json
+          echo "First 200 characters:"
+          head -c 200 public/heart_mesh.json
+
+      # Cache the file. The key MUST match what ci.yml expects
+      # in its restore step, or the Docker job won't find it.
+      - name: Cache mesh file
+        uses: actions/cache@v4
+        with:
+          path: public/heart_mesh.json
+          key: heart-mesh-${{ inputs.cache-version }}

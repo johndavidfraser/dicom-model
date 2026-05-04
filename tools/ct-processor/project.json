@@ -1,0 +1,26 @@
+{
+    "$schema": "../../node_modules/nx/schemas/project-schema.json",
+    "name": "ct-processor",
+    "projectType": "application",
+    "sourceRoot": "tools/ct-processor",
+    "tags": ["lang:python", "scope:tools"],
+    "implicitDependencies": ["shared-types"],
+    "targets": {
+        "run": {
+            "executor": "nx:run-commands",
+            "cache": true,
+            "inputs": [
+                "{projectRoot}/process_ct.py",
+                "{projectRoot}/requirements.txt",
+                "{projectRoot}/sample_data/**/*",
+                "{workspaceRoot}/libs/shared-types/src/lib/heart-mesh.schema.json"
+            ],
+            "outputs": [
+                "{workspaceRoot}/public/heart_mesh.json"
+            ],
+            "options": {
+                "command": "tools/ct-processor/venv/bin/python tools/ct-processor/process_ct.py"
+            }
+        }
+    }
+}

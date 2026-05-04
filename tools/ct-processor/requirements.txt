@@ -1,0 +1,16 @@
+attrs==26.1.0
+ImageIO==2.37.3
+jsonschema==4.26.0
+jsonschema-specifications==2025.9.1
+lazy-loader==0.5
+networkx==3.6.1
+numpy==2.4.4
+packaging==26.0
+pillow==12.2.0
+pydicom==3.0.2
+referencing==0.37.0
+rpds-py==0.30.0
+scikit-image==0.26.0
+scipy==1.17.1
+tifffile==2026.3.3
+typing_extensions==4.15.0

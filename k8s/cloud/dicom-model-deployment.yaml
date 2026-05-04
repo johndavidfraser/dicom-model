@@ -1,0 +1,55 @@
+# Cloud deployment for EKS
+# Differences from the local kind deployment:
+# - Image pulls from GHCR (not loaded locally)
+# - imagePullPolicy: Always (pull fresh on each deploy)
+# - imagePullSecrets references the ghcr-secret for 
+# authentication with the private GHCR registry
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dicom-model
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: dicom-model
+  template:
+    metadata:
+      labels:
+        app: dicom-model
+    spec:
+      # Tell k8s which secret to use when pulling
+      # images from private registries. Without this,
+      # the pull fails with "unauthorized" because GHCR
+      # doesn't allow anonymous access to private packages.
+      imagePullSecrets:
+        - name: ghcr-secret
+      containers:
+        - name: dicom-model
+          image: ghcr.io/johndavidfraser/dicom-model:dev
+          # "Always" tells k8s to pull the image
+          # every time a pod starts, even if a cached copy
+          # exists on the node. This ensures you always get
+          # the latest build from GHCR
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
